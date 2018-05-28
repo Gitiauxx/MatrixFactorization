@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from numba import jit
 
 
 class matrix_factorization(object):
@@ -186,6 +187,85 @@ class matrix_factorization_plus(matrix_factorization_bias):
         return np.dot(self.U[user, :] + y_factor / number, self.V[item, :].transpose()) + self.A[user] + self.B[item]
 
 
+class matrix_factorization_numba(matrix_factorization_bias):
+    def gradient_descent(self, R):
+        self.squared_error, self.U, self.V, self.A, self.B =_gradient_descent(R, self.U, self.V, self.A,
+                                                                              self.B, self.eta, self.beta)
+
+class matrix_factorization_numba_plus(matrix_factorization_plus):
+
+    def __init__(self, R, n_users, n_items, k, eta, beta):
+        super().__init__(R, n_users, n_items, k, eta, beta)
+        self.Y = np.random.normal(scale=1 / k, size=(n_users, k))
+
+    def update_y(self, R):
+        user_dict = self.get_user_dict(R)
+
+        for user in user_dict:
+            user = int(user)
+            watched = user_dict[user]
+            number_items = len(user_dict[user])
+
+            y_sum = 0
+            for item_watched in watched:
+                y_sum += self.V[item_watched, :]
+
+            self.Y[user, :] = self.Y[user, :] + self.eta * y_sum / number_items
+
+
+    def gradient_descent(self, R):
+        self.squared_error, self.U, self.V, self.A, self.B = _gradient_descent_plus(R, self.U, self.V, self.A,
+                                                                               self.B, self.Y, self.eta, self.beta)
+        self.update_y(R)
+
+    def get_rating_item_user(self, user, item):
+        return np.dot(self.U[user, :] + self.Y[user, :], self.V[item, :].transpose()) + self.A[user] + self.B[item]
+
+@jit(nopython=True)
+def _gradient_descent(R, U, V, A, B, eta, beta):
+    squared_error = 0
+    for i in range(R.shape[0]):
+        user = int(R[i, 0])
+        item = int(R[i, 2])
+        error = R[i, 1] - np.dot(U[user, :], V[item, :].transpose()) - \
+                A[user] - B[item]
+
+        update_u = V[item, :] * error - beta * U[user, :]
+        update_v = U[user, :] * error - beta * V[item, :]
+        update_a = error - beta * A[user]
+        update_b = error - beta * B[item]
+
+        U[user, :] += eta * update_u
+        V[item, :] += eta * update_v
+        A[user] += eta * update_a
+        B[item] += eta * update_b
+        squared_error += error ** 2
+
+    return squared_error, U, V, A, B
+
+@jit(nopython=True)
+def _gradient_descent_plus(R, U, V, A, B, Y, eta, beta):
+    squared_error = 0
+    for i in range(R.shape[0]):
+        user = int(R[i, 0])
+        item = int(R[i, 2])
+        error = R[i, 1] - np.dot(U[user, :] + Y[user, :], V[item, :].transpose()) - A[user] - B[item]
+
+        update_u = V[item, :] * error - beta * U[user, :]
+        update_v = U[user, :] * error - beta * V[item, :]
+        update_a = error - beta * A[user]
+        update_b = error - beta * B[item]
+
+        U[user, :] += eta * update_u
+        V[item, :] += eta * update_v
+        A[user] += eta * update_a
+        B[item] += eta * update_b
+        squared_error += error ** 2
+
+    return squared_error, U, V, A, B
+
+
+
 if __name__ == '__main__':
     R = np.load('C:\\Users\\MX\\Documents\\Xavier\\CSPrel\\Recommneder\\netflix data\\short_training.npy')
 
@@ -194,8 +274,8 @@ if __name__ == '__main__':
 
     print("The number of items is {} and the number of users is {} \n".format(n_items, n_users))
 
-    mf = matrix_factorization_plus(R, n_users, n_items, 20, 0.05, 0.1)
-    mf.iteration(10, method='MF_plus')
+    mf = matrix_factorization_numba_plus(R, n_users, n_items, 10, 0.05, 0.2)
+    mf.iteration(10, method='MF_numba_bias')
 
 
 
